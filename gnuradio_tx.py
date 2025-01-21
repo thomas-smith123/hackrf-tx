@@ -1,16 +1,11 @@
-#
-# @Date: 2025-01-15 22:18:42
-# @LastEditors: error: error: git config user.name & please set dead value or install git && error: git config user.email & please set dead value or install git & please set dead value or install git
-# @LastEditTime: 2025-01-16 17:36:05
-# @FilePath: /ad9361_py/gnuradio_tx.py
-#
 import numpy as np
-# import sys
-# sys.path.append('/home/jiangrd3/ad9361_py/gnuradio-prefix/lib/python3.11/site-packages')
-from gnuradio import gr
-from gnuradio import blocks
+from gnuradio import gr, blocks
 import osmosdr
+import time, os
 
+PATH = './'
+filename = '20250119_2020.csv'
+data = []
 
 def hex_to_bin_array(hex_str):
     # 去掉可能的前缀 '0x' 并转换为大写（可选）
@@ -21,26 +16,76 @@ def hex_to_bin_array(hex_str):
     bin_array = [int(bit) for bit in bin_str]
     return bin_array
 
-class HackRFSignalTx(gr.top_block):
-    def __init__(self, signal_data, sample_rate, center_freq, gain):
-        gr.top_block.__init__(self)
+# HackRF 参数
+center_freq = 1090e6  # 中心频率，1090 MHz
+sample_rate = 10e6     # 采样率
+tx_gain = 10          # 发射增益
 
-        # Step 1: 将 NumPy 数据包装为 GNU Radio 流
-        # 使用 blocks.vector_source_c 作为数据源（复数信号）
-        self.signal_source = blocks.vector_source_c(signal_data.tolist(), repeat=True)
+def main():
+    tb = gr.top_block()
 
-        # Step 2: 配置 HackRF Sink
-        self.hackrf_sink = osmosdr.sink(args="numchan=1 hackrf=0")
-        self.hackrf_sink.set_sample_rate(sample_rate)   # 设置采样率
-        self.hackrf_sink.set_center_freq(center_freq)   # 设置中心频率
-        self.hackrf_sink.set_gain(gain)                 # 设置增益
+    # 创建 HackRF Sink
+    hackrf_sink = osmosdr.sink(args="numchan=1 hackrf=0")
+    hackrf_sink.set_sample_rate(sample_rate)
+    hackrf_sink.set_center_freq(center_freq)
+    hackrf_sink.set_gain(tx_gain)
+    with open(os.path.join(PATH, filename),'r') as f:
+        for line in f:
+            tmp = line.strip().split(',')
+            if len(tmp) < 1400:
+                continue
+            tmp = line.strip().split(',')[4:-251]
+            tmp = np.array([complex(float(i.split('+j')[0]),float(i.split('+j')[1])) for i in tmp])/2048
+            pwm_signal = tmp
+            pwm_signal = np.concatenate([pwm_signal,np.zeros(4096-len(pwm_signal),np.complex64)],0)
+            for i in range(20):  # 每秒发射一次信号，连续发射 5 次
+                print(f"Sending signal batch {i + 1}...")
+                
+                # 生成动态信号
+                pwm_signal = tmp#generate_pwm_signal(i)
+                signal_source = blocks.vector_source_c(pwm_signal.tolist(), repeat=True)
 
-        # Step 3: 连接信号源到 HackRF Sink
-        self.connect(self.signal_source, self.hackrf_sink)
+                # 动态连接信号源到 HackRF Sink
+                tb.connect(signal_source, hackrf_sink)
 
-# 主程序
-if __name__ == '__main__':
-    msg = '8CFFFFFC423C52D692D953855472'
+                # 启动传输
+                tb.start()
+                # input("Press Enter to stop transmission...")
+                # 等待当前信号传输完成
+                duration = len(pwm_signal) / sample_rate *200
+                time.sleep(duration)
+                
+                # 停止传输并断开连接
+                tb.stop()
+                tb.wait()
+                tb.disconnect(signal_source, hackrf_sink)
+
+                # 等待 1 秒再发下一次
+                time.sleep(5)
+
+    print("Signal transmission completed!")
+
+# def generate_pwm_signal(batch_num):
+#     """
+#     动态生成 PWM 信号。
+#     每次调用生成不同的信号，用于模拟变化的信号内容。
+#     """
+#     pwm_length = 1024
+#     duty_cycle = 0.2 + 0.1 * (batch_num % 5)  # 每次增加占空比
+#     pwm_signal = np.zeros(pwm_length, dtype=np.complex64)
+
+#     high_samples = int(pwm_length * duty_cycle)
+#     pwm_signal[:high_samples] = 1.0 + 0j
+#     pwm_signal[high_samples:] = 0.0 + 0j
+
+#     return pwm_signal
+
+def generate_pwm_signal(batch_num):
+    """
+    动态生成 PWM 信号。
+    每次调用生成不同的信号，用于模拟变化的信号内容。
+    """
+    msg = '8CFFFFFF423C52D692D953855472'
     header = [1,0,1,0,0,0,0,1,0,1,0,0,0,0,0,0]
     bit_sequence = hex_to_bin_array(msg)
     tmp = []
@@ -54,36 +99,14 @@ if __name__ == '__main__':
     header.extend(end)
     bin_msg = np.array(header)
     bin_msg = np.repeat(bin_msg,5)
-    pwm_signal_complex = np.array(bin_msg,np.complex64)
-    pass
+    pwm_signal = np.array(bin_msg,np.complex64)
+    pwm_signal = np.concatenate([pwm_signal,np.zeros(4096-len(pwm_signal),np.complex64)])
+
+    return pwm_signal
+
+if __name__ == "__main__":
     
-    # file = '20241225_1152.csv'
-    # with open(file,'r') as f:
-    #     for i in f:
-    #         data = i.split(',')[4:1043]
+    
             
-    #         tmp = np.array([complex(float(c.split('+j')[0]),float(c.split('+j')[1])) for c in data])
-    #         pass
-    # 参数配置
-    sample_rate = 10e6  # 采样率（Hz）
-    center_freq = 1090e6  # 中心频率（Hz）
-    gain = 10  # 发射增益
-
-    # Step 1: 使用 NumPy 生成 PWM 信号
-    # 示例：生成简单的 PWM 信号（占空比 50%，周期 10 个采样点）
-    bit_duration = 10  # 每个比特持续 10 个采样点
-    bit_sequence = [0, 1, 0, 1, 1, 0]  # 比特序列
-    pwm_signal = []
-    for bit in bit_sequence:
-        pwm_signal.extend([bit] * bit_duration)
-
-    # 转换为复数信号（HackRF 需要复数输入）
-    pwm_signal = np.array(pwm_signal, dtype=np.float32) * 0.7  # 调整幅度
-    # pwm_signal_complex = pwm_signal + 1j * pwm_signal  # 简单构造复数信号
-
-    # Step 2: 初始化并运行 GNU Radio 流图
-    tb = HackRFSignalTx(pwm_signal_complex, sample_rate, center_freq, gain)
-    tb.start()
-    input("Press Enter to stop transmission...")
-    tb.stop()
-    tb.wait()
+            # time.sleep(5)
+    main()
