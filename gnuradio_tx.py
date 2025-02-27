@@ -19,9 +19,9 @@ def hex_to_bin_array(hex_str):
 # HackRF 参数
 center_freq = 1090e6  # 中心频率，1090 MHz
 sample_rate = 10e6     # 采样率
-tx_gain = 10          # 发射增益
+tx_gain = 30          # 发射增益
 
-def main():
+def main(num_records=150):
     tb = gr.top_block()
 
     # 创建 HackRF Sink
@@ -30,19 +30,31 @@ def main():
     hackrf_sink.set_center_freq(center_freq)
     hackrf_sink.set_gain(tx_gain)
     with open(os.path.join(PATH, filename),'r') as f:
-        for line in f:
-            tmp = line.strip().split(',')
-            if len(tmp) < 1400:
-                continue
-            tmp = line.strip().split(',')[4:-251]
-            tmp = np.array([complex(float(i.split('+j')[0]),float(i.split('+j')[1])) for i in tmp])/2048
-            pwm_signal = tmp
-            pwm_signal = np.concatenate([pwm_signal,np.zeros(4096-len(pwm_signal),np.complex64)],0)
-            for i in range(20):  # 每秒发射一次信号，连续发射 5 次
+        for total_row, _ in enumerate(f):
+            pass
+        f.seek(0)
+        cnt = 0
+        while(1):
+            if total_row - cnt < num_records:
+                num_records = total_row - cnt
+            pwm_signal = []
+            for i in range(num_records):
+                tmp = f.readline().strip().split(',')
+                if len(tmp) < 1400:
+                    continue
+                tmp = tmp[4:-251]
+                tmp = np.array([complex(float(i.split('+j')[0]),float(i.split('+j')[1])) for i in tmp])/2048
+                tmp = np.concatenate([tmp,np.zeros(40)],0)
+                pwm_signal.append(tmp)
+                pass
+            pwm_signal = np.concatenate(pwm_signal,0)
+            
+            # 
+            for i in range(1):  # 每秒发射一次信号，连续发射 5 次
                 print(f"Sending signal batch {i + 1}...")
                 
                 # 生成动态信号
-                pwm_signal = tmp#generate_pwm_signal(i)
+                # pwm_signal = tmp#generate_pwm_signal(i)
                 signal_source = blocks.vector_source_c(pwm_signal.tolist(), repeat=True)
 
                 # 动态连接信号源到 HackRF Sink
@@ -52,7 +64,7 @@ def main():
                 tb.start()
                 # input("Press Enter to stop transmission...")
                 # 等待当前信号传输完成
-                duration = len(pwm_signal) / sample_rate *200
+                duration = len(pwm_signal) / sample_rate * 1.8
                 time.sleep(duration)
                 
                 # 停止传输并断开连接
@@ -61,8 +73,10 @@ def main():
                 tb.disconnect(signal_source, hackrf_sink)
 
                 # 等待 1 秒再发下一次
-                time.sleep(5)
-
+                time.sleep(6)
+            cnt += num_records
+            if cnt>=total_row:
+                break
     print("Signal transmission completed!")
 
 # def generate_pwm_signal(batch_num):
@@ -85,7 +99,7 @@ def generate_pwm_signal(batch_num):
     动态生成 PWM 信号。
     每次调用生成不同的信号，用于模拟变化的信号内容。
     """
-    msg = '8CFFFFFF423C52D692D953855472'
+    msg = '8F7C48125C0D26E63F843E8D2A2F'
     header = [1,0,1,0,0,0,0,1,0,1,0,0,0,0,0,0]
     bit_sequence = hex_to_bin_array(msg)
     tmp = []
