@@ -4,7 +4,8 @@ import osmosdr
 import time, os
 
 PATH = './'
-filename = '20250119_2020.csv'
+filename1 = '20250219_2306.csv'
+filename2 = '20250221_1806.csv'
 data = []
 
 def hex_to_bin_array(hex_str):
@@ -17,11 +18,11 @@ def hex_to_bin_array(hex_str):
     return bin_array
 
 # HackRF 参数
-center_freq = 1090e6  # 中心频率，1090 MHz
+center_freq = 1091e6  # 中心频率，1090 MHz
 sample_rate = 10e6     # 采样率
-tx_gain = 30          # 发射增益
+tx_gain = 25          # 发射增益
 
-def main(num_records=150):
+def main(filename,num_records=250):
     tb = gr.top_block()
 
     # 创建 HackRF Sink
@@ -42,15 +43,15 @@ def main(num_records=150):
                 tmp = f.readline().strip().split(',')
                 if len(tmp) < 1400:
                     continue
-                tmp = tmp[4:-251]
+                tmp = tmp[4:4+1300]
                 tmp = np.array([complex(float(i.split('+j')[0]),float(i.split('+j')[1])) for i in tmp])/2048
-                tmp = np.concatenate([tmp,np.zeros(40)],0)
+                tmp = np.concatenate([tmp,np.zeros(100)],0)
                 pwm_signal.append(tmp)
                 pass
             pwm_signal = np.concatenate(pwm_signal,0)
             
             # 
-            for i in range(1):  # 每秒发射一次信号，连续发射 5 次
+            for i in range(3):  # 每秒发射一次信号，连续发射 5 次
                 print(f"Sending signal batch {i + 1}...")
                 
                 # 生成动态信号
@@ -64,7 +65,7 @@ def main(num_records=150):
                 tb.start()
                 # input("Press Enter to stop transmission...")
                 # 等待当前信号传输完成
-                duration = len(pwm_signal) / sample_rate * 1.8
+                duration = len(pwm_signal) / sample_rate 
                 time.sleep(duration)
                 
                 # 停止传输并断开连接
@@ -73,7 +74,7 @@ def main(num_records=150):
                 tb.disconnect(signal_source, hackrf_sink)
 
                 # 等待 1 秒再发下一次
-                time.sleep(6)
+                time.sleep(7)
             cnt += num_records
             if cnt>=total_row:
                 break
@@ -123,4 +124,5 @@ if __name__ == "__main__":
     
             
             # time.sleep(5)
-    main()
+    main(filename1)
+    main(filename2)
